@@ -1,1 +1,198 @@
+## BLACKBOX
 
+function BBTest-ADCredential {
+    [CmdletBinding()]
+    Param
+    (
+        [string]$UserName,
+        [string]$Password
+    )
+
+    if (!($UserName) -or !($Password)) {
+        Write-Warning 'Test-ADCredential: Please specify both user name and password'
+    } else {
+        Add-Type -AssemblyName System.DirectoryServices.AccountManagement
+        $DS = New-Object System.DirectoryServices.AccountManagement.PrincipalContext('domain')
+        $DS.ValidateCredentials($UserName, $Password)
+        
+    }
+}
+
+function BBFindSearchTerm {
+    [CmdletBinding()]
+    Param
+    (
+        [Array]$ServerList,
+        [string]$SearchTerm,
+        [system.object]$Credential
+    )
+
+    #begin dc processing
+    foreach($dc in $ServerList){
+    
+        $server = $dc.name
+    
+        #write progress bar status
+        write-progress -activity "Searching $prognum of $lines Servers (Records Found: $matches)" -status "Checking $server... Please Wait" -percentComplete ($prognum / $lines*100)
+        $prognum++
+
+        #create ps object to store data
+        $Eventobject = New-Object PSObject
+
+        #Run the search on current DC
+        try #to connect
+        {
+            $eventmatches = invoke-command -ArgumentList $searchTerm -cn $server -ErrorAction SilentlyContinue -credential $Credential -scriptblock 
+            {
+                $searchT=$args[0]
+                get-winevent -LogName "Microsoft-Windows-AppLocker/EXE and DLL" | Select * | ?{$_.Message.contains($searchT)} | select UserID, Message, TimeCreated
+            }
+        }
+        catch #if cant connect
+        {
+            write-host "[Error]:There was an issue connecting to $server" -ForegroundColor Red
+            "Error Connecting to $server"
+            $DCObject | add-member -membertype NoteProperty -name "Server" -Value  $server
+		    $DCObject | add-member -membertype NoteProperty -name "Resolvedusername" -Value "-"
+		    $DCObject | add-member -membertype NoteProperty -name "message" -Value "-"
+		    $DCObject | add-member -membertype NoteProperty -name "timeofexecution" -Value "-"
+            $DCObject | add-member -membertype NoteProperty -name "Error" -Value  "Error Connecting to $server"
+            $DCInfoResults += $DCObject
+            break
+        }
+    
+
+        #If connected, check if there were not matches
+        if($eventmatches -ne $null){
+
+            #process the matched events for exportation
+            foreach($event in $eventmatches){
+                #incriment match count
+
+            
+                #extract event values
+                $sid = $event.UserID
+                $message = $event.message
+                $timeofexecution = $event.timecreated
+
+                #process out unneeded info from the message
+                if($message.Contains(" was allowed to run.")){
+                $message = $event.message.TrimEnd(" was allowed to run.")
+                }
+
+                if($message.Contains(" was allowed to run but")){
+                $message = $event.message.TrimEnd(" was allowed to run but would have been prevented from running if the AppLocker policy were enforced.")
+                }
+
+                #convert SID to Username
+                $objSID = New-Object System.Security.Principal.SecurityIdentifier ("$sid")
+                $objUser = $objSID.Translate( [System.Security.Principal.NTAccount])
+                $Resolvedusername = $objUser.Value
+
+                #output comma string to report.
+                $server, $Resolvedusername, $message, $timeofexecution
+
+                #add to psobject
+                $DCObject | add-member -membertype NoteProperty -name "Server" -Value  $server
+		        $DCObject | add-member -membertype NoteProperty -name "Resolvedusername" -Value $Resolvedusername
+		        $DCObject | add-member -membertype NoteProperty -name "message" -Value $message
+		        $DCObject | add-member -membertype NoteProperty -name "timeofexecution" -Value $timeofexecution
+                $DCObject | add-member -membertype NoteProperty -name "Error" -Value  "-"
+		        $DCInfoResults += $DCObject			
+
+            }
+        }
+
+    }
+    return $DCInfoResults
+}
+
+
+function BBFindUserExecutions {
+    [CmdletBinding()]
+    Param
+    (
+        [Array]$ServerList,
+        [string]$SearchUser,
+        [system.object]$Credential
+    )
+
+    #begin dc processing
+    foreach($dc in $ServerList){
+    
+        $server = $dc.name
+    
+        #write progress bar status
+        write-progress -activity "Searching $prognum of $lines Servers (Records Found: $matches)" -status "Checking $server... Please Wait" -percentComplete ($prognum / $lines*100)
+        $prognum++
+
+        #create ps object to store data
+        $Eventobject = New-Object PSObject
+
+        #Run the search on current DC
+        try #to connect
+        {
+            $eventmatches = invoke-command -ArgumentList $SearchUser -cn $server -ErrorAction SilentlyContinue -credential $Credential -scriptblock 
+            {
+                $searchT=$args[0]
+                get-winevent -LogName "Microsoft-Windows-AppLocker/EXE and DLL" | Select * | ?{$_.Message.contains($searchT)} | select UserID, Message, TimeCreated
+            }
+        }
+        catch #if cant connect
+        {
+            write-host "[Error]:There was an issue connecting to $server" -ForegroundColor Red
+            "Error Connecting to $server"
+            $DCObject | add-member -membertype NoteProperty -name "Server" -Value  $server
+		    $DCObject | add-member -membertype NoteProperty -name "Resolvedusername" -Value "-"
+		    $DCObject | add-member -membertype NoteProperty -name "message" -Value "-"
+		    $DCObject | add-member -membertype NoteProperty -name "timeofexecution" -Value "-"
+            $DCObject | add-member -membertype NoteProperty -name "Error" -Value  "Error Connecting to $server"
+            $DCInfoResults += $DCObject
+            break
+        }
+    
+
+        #If connected, check if there were not matches
+        if($eventmatches -ne $null){
+
+            #process the matched events for exportation
+            foreach($event in $eventmatches){
+                #incriment match count
+
+            
+                #extract event values
+                $sid = $event.UserID
+                $message = $event.message
+                $timeofexecution = $event.timecreated
+
+                #process out unneeded info from the message
+                if($message.Contains(" was allowed to run.")){
+                $message = $event.message.TrimEnd(" was allowed to run.")
+                }
+
+                if($message.Contains(" was allowed to run but")){
+                $message = $event.message.TrimEnd(" was allowed to run but would have been prevented from running if the AppLocker policy were enforced.")
+                }
+
+                #convert SID to Username
+                $objSID = New-Object System.Security.Principal.SecurityIdentifier ("$sid")
+                $objUser = $objSID.Translate( [System.Security.Principal.NTAccount])
+                $Resolvedusername = $objUser.Value
+
+                #output comma string to report.
+                $server, $Resolvedusername, $message, $timeofexecution
+
+                #add to psobject
+                $DCObject | add-member -membertype NoteProperty -name "Server" -Value  $server
+		        $DCObject | add-member -membertype NoteProperty -name "Resolvedusername" -Value $Resolvedusername
+		        $DCObject | add-member -membertype NoteProperty -name "message" -Value $message
+		        $DCObject | add-member -membertype NoteProperty -name "timeofexecution" -Value $timeofexecution
+                $DCObject | add-member -membertype NoteProperty -name "Error" -Value  "-"
+		        $DCInfoResults += $DCObject			
+
+            }
+        }
+
+    }
+    return $DCInfoResults
+}
